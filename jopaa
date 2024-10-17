@@ -1,0 +1,259 @@
+xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.example</groupId>
+    <artifactId>PerudoGame</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <properties>
+        <maven.compiler.source>22</maven.compiler.source>
+        <maven.compiler.target>22</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+    <dependencies>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.12</version>
+            <scope>compile</scope>
+        </dependency>
+    </dependencies>
+
+</project>
+
+22
+import jdk.internal1.icu.impl.CharacterIteratorWrapper;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.concurrent.*;
+
+public class Game {
+    private static final String RULES_FILE = "rules.txt";
+    private static final String LOG_FILE = "log.json";
+    private static final int TIMER_DURATION = 60; // 1 minute
+    private static final double COMPUTER_RAISE_PROBABILITY = 0.6;
+    private static CharacterIteratorWrapper scanner;
+
+    private static class Player {
+        String name;
+        private int[] dice;
+
+        public Player(String name) {
+            this.name = name;
+            this.dice = new int[] {randomInt(1, 6), randomInt(1, 6)};
+        }
+
+        public int getScore() {
+            return dice[0] + dice[1];
+        }
+
+        public void rollDice() {
+            dice[0] = randomInt(1, 6);
+            dice[1] = randomInt(1, 6);
+        }
+    }
+
+    private static class ComputerPlayer extends Player {
+        public ComputerPlayer(String name) {
+            super(name);
+        }
+
+        public String makeMove(int currentScore) {
+            if (randomDouble() < COMPUTER_RAISE_PROBABILITY) {
+                return "raise";
+            } else {
+                return "no";
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+
+        while (true) {
+            System.out.println("Menu:");
+            System.out.println("1. Start game");
+            System.out.println("2. Rules");
+            System.out.println("3. Exit");
+
+            int choice = scanner.nextInt();
+
+            if (choice == 1) {
+                startGame(scanner);
+            } else if (choice == 2) {
+                printRules();
+            } else if (choice == 3) {
+                break;
+            } else {
+                System.out.println("Invalid input. Please try again.");
+            }
+        }
+    }
+
+    private static void startGame(Scanner scanner) {
+        System.out.print("Enter your name or press Enter to generate a random name: ");
+        String playerName = scanner.next();
+        if (playerName.isEmpty()) {
+            playerName = generateName();
+        }
+
+        Player player = new Player(playerName);
+        List<ComputerPlayer> computerPlayers = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            computerPlayers.add(new ComputerPlayer(generateName()));
+        }
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<Void> future = (Future<Void>) executor.submit(() -> playGame(player, computerPlayers));
+        executor.shutdown();
+
+        try {
+            future.get(TIMER_DURATION, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            System.out.println("Time's up! You lost.");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void playGame(Player player, List<ComputerPlayer> computerPlayers) {
+        List<Map<String, Object>> log = new ArrayList<>();
+
+        while (true) {
+            System.out.println("Your turn!");
+            System.out.println("Current score: " + player.getScore());
+            System.out.print("Do you want to raise or no? ");
+
+            String userInput = String.valueOf(scanner.next());
+            if (userInput.equalsIgnoreCase("raise")) {
+                player.rollDice();
+                log.add(Map.of("player", player.name, "move", "raise", "score", player.getScore()));
+            } else if (userInput.equalsIgnoreCase("no")) {
+                log.add(Map.of("player", player.name, "move", "no", "score", player.getScore()));
+                break;
+            } else {
+                System.out.println("Invalid input. Please enter 'raise' or 'no'.");
+                continue;
+            }
+
+            if (player.getScore() >= 21) {
+                System.out.println("You won!");
+                log.add(Map.of("result", "won"));
+                break;
+            }
+
+            for (ComputerPlayer computerPlayer : computerPlayers) {
+                String move = computerPlayer.makeMove(player.getScore());
+                if (move.equals("raise")) {
+                    computerPlayer.rollDice();
+                    log.add(Map.of("player", computerPlayer.name, "move", "raise", "score", computerPlayer.getScore()));
+                } else {
+                    log.add(Map.of("player", computerPlayer.name, "move", "no", "score", computerPlayer.getScore()));
+                }
+
+                if (computerPlayer.getScore() >= 21) {
+                    System.out.println(computerPlayer.name + " won!");
+                    log.add(Map.of("result", "lost"));
+                    break;
+                }
+            }
+        }
+
+        writeLog(log);
+    }
+
+    static String printRules() {
+        try (BufferedReader reader = new BufferedReader(new FileReader(RULES_FILE))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    static String generateName() {
+        String[] names = {"John", "Alice", "Bob", "Eve", "Mike", "Sarah", "Tom", "Lily"};
+        return names[randomInt(0, names.length - 1)] + randomInt(0, 100000);
+    }
+
+    private static int randomInt(int min, int max) {
+        return (int) (Math.random() * (max - min + 1)) + min;
+    }
+
+    private static double randomDouble() {
+        return Math.random();
+    }
+
+    static void writeLog(List<Map<String, Object>> log) {
+        try (FileWriter writer = new FileWriter(LOG_FILE)) {
+            for (Map<String, Object> entry : log) {
+                writer.write(new JSONObject(entry).toString() + "\n");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+22
+public class CharacterIteratorWrapper {
+}
+22
+
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.Assert.assertNotNull;
+
+public class GameTest {
+    @Test
+    public void testGenerateName() {
+        String name = Game.generateName();
+        assertNotNull(name);
+    }
+
+    @Test
+    public void testReadRules() {
+        String rules = Game.printRules();
+        assertNotNull(rules);
+    }
+
+    @Test
+    public void testWriteLog() {
+        List<Map<String, Object>> log = new ArrayList<>();
+        log.add(Map.of("player", "John", "move", "raise", "score", 10));
+        Game.writeLog(log);
+        // Verify that the log is written to the file
+    }
+}
+22
+import java.util.Map;
+
+public class JSONObject {
+    public JSONObject(Map<String, Object> entry) {
+    }
+}
+22
+
+
+
+
